@@ -1,0 +1,9 @@
+spring:
+  application:
+    name: ServiceWithKafka
+  cloud:
+    kubernetes:
+      config:
+        name: service-with-kafka
+        #You can specify multiple (exact) file paths in spring.cloud.kubernetes.config.paths by using the , delimiter.
+        paths: /etc/config/configs.yaml

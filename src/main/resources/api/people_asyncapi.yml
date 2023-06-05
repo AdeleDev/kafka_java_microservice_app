@@ -1,0 +1,208 @@
+asyncapi: 2.0.0
+info:
+  title: People API
+  version: '1.0.1'
+  description: |
+    The People API allows you to stay tuned about all changes in people profiles.
+  contact:
+    name: API Support
+    email: semen.tenishchev@t-systems.com
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  playground:
+    url: localhost:9092
+    protocol: kafka
+    description: Kafka playground broker
+    protocolVersion: '1.0.0'
+
+defaultContentType: application/json
+
+channels:
+  people:
+    subscribe:
+      summary: Publish information about change data of a person.
+      operationId: notifyPeopleChanges
+      traits:
+        - $ref: '#/components/operationTraits/kafka'
+      message:
+        $ref: '#/components/messages/peopleEvent'
+  people2:
+    subscribe:
+      summary: Publish information about change data of a person.
+      operationId: notifyAnotherPeopleChanges
+      traits:
+        - $ref: '#/components/operationTraits/kafka'
+      message:
+        $ref: '#/components/messages/peopleEvent'
+
+  houses:
+    publish:
+      bindings:
+        kafka:
+          groupId: 'housesGroup'
+      summary: Get information about changes in houses.
+      operationId: notifyHouseChanges
+      message:
+        $ref: '#/components/messages/houseEvent'
+
+components:
+  messages:
+    peopleEvent:
+      name: peopleEvent
+      title: People event
+      summary: Inform about changes with people.
+      description: |
+        Event regarding any update in people information.
+        Could be raised as result of direct changes in people information or by update of relative information e.g. change house.
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/peoplePayload"
+    houseEvent:
+      name: houseEvent
+      title: House event
+      summary: Inform about changes with house.
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/housePayload"
+
+  schemas:
+    Address:
+      type: object
+      properties:
+        homeIds:
+          description: id of owned houses
+          type: array
+          items:
+            type: integer
+            format: int64
+          uniqueItems: true
+        registrationId:
+          description: id of house where people registered
+          type: integer
+          format: int64
+      xml:
+        name: Address
+    People:
+      required:
+        - firstname
+        - lastname
+        - birthday
+      type: object
+      example:
+        firstname: Gans
+        lastname: Anderson
+        birthday: 02.04.1805
+      description: |
+        This element represent data of one person.
+        Also contains data about living place.
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 1000000000
+        addressData:
+          $ref: '#/components/schemas/Address'
+        birthday:
+          description: validation rule - our system doesn't support years before 1980.
+          type: string
+          format: date
+        firstname:
+          type: string
+          examples: [ 'Gans', 'Chris' ]
+          minLength: 1
+          maxLength: 20
+        lastname:
+          type: string
+          examples: [ 'Anderson' ]
+          minLength: 1
+          maxLength: 20
+        status:
+          type: string
+          enum:
+            - alive
+            - not alive
+        relatives:
+          description: siblings and elters
+          type: array
+          minItems: 2
+          uniqueItems: true
+          items:
+            type: integer
+            format: int64
+        children:
+          type: array
+          maxItems: 10
+          uniqueItems: true
+          items:
+            type: integer
+            format: int64
+      xml:
+        name: People
+    House:
+      required:
+        - city
+        - street
+        - number
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        city:
+          type: string
+          examples: [ 'St. Petersburg' ]
+        street:
+          type: string
+          examples: [ '12-13 Line V.O.' ]
+        number:
+          type: integer
+          examples: [ 14 ]
+          format: int64
+        lastUsed:
+          type: string
+          format: date
+      xml:
+        name: House
+
+    peoplePayload:
+      type: object
+      properties:
+        eventId:
+          type: integer
+          minimum: 0
+          description: The ID of event.
+        eventType:
+          type: string
+          description: The type of event.
+        event:
+          $ref: "#/components/schemas/People"
+        sentAt:
+          $ref: "#/components/schemas/sentAt"
+    housePayload:
+      type: object
+      properties:
+        eventId:
+          type: integer
+          minimum: 0
+          description: The ID of event.
+        eventType:
+          type: string
+          description: The type of event.
+        event:
+          $ref: "#/components/schemas/House"
+        sentAt:
+          $ref: "#/components/schemas/sentAt"
+    sentAt:
+      type: string
+      format: date-time
+      description: Date and time when the message was sent.
+
+  operationTraits:
+    kafka:
+      bindings:
+        kafka:
+          clientId: my-app-id

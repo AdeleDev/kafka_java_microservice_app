@@ -1,0 +1,161 @@
+plugins {
+    id 'org.springframework.boot' version "${springBootVersion}"
+    id 'io.spring.dependency-management' version "${springDependencyManagement}"
+    id 'java'
+    id 'com.github.node-gradle.node' version "${githubNodeGradle}"
+}
+
+group = 'ngfs.servicewithkafka'
+version = "${applicationVersion}"
+
+tasks.withType(JavaCompile) {
+    options.encoding = "${sourceEncoding}"
+}
+
+tasks.withType(JavaExec) {
+}
+
+repositories {
+    mavenCentral()
+}
+
+sourceSets {
+    main {
+        java {
+            srcDirs "${buildDir}/asyncapi-generated-src"
+        }
+    }
+    integrationTest {
+        java {
+            compileClasspath += main.output + test.output
+            runtimeClasspath += main.output + test.output
+            srcDir file('src/integration-test/java')
+        }
+    }
+}
+
+configurations {
+    integrationTestCompile.extendsFrom testCompile
+    integrationTestImplementation.extendsFrom testImplementation
+    integrationTestImplementation.extendsFrom implementation
+}
+
+dependencies {
+    implementation "org.springframework.boot:spring-boot-starter:${springBootVersion}"
+    implementation "org.springframework.boot:spring-boot-starter-web:${springBootVersion}"
+    implementation "org.springframework.boot:spring-boot-starter-integration:${springBootVersion}"
+    implementation "org.springframework.boot:spring-boot-starter-actuator:${springBootVersion}"
+    implementation "org.springframework.kafka:spring-kafka:${springKafkaVersion}"
+    implementation "javax.validation:validation-api:${javaxValidationVersion}"
+    implementation("net.logstash.logback:logstash-logback-encoder:${logstashEncoderVersion}") { transitive = false }
+    implementation "org.hibernate.validator:hibernate-validator:${hibernateVersion}"
+    implementation "org.apache.tomcat.embed:tomcat-embed-core:${tomcatVersion}"
+    implementation "org.apache.tomcat.embed:tomcat-embed-websocket:${tomcatVersion}"
+    implementation "org.apache.tomcat:tomcat-annotations-api:${tomcatVersion}"
+
+    testImplementation "org.junit.jupiter:junit-jupiter:${junitVersion}"
+    testImplementation "org.springframework.boot:spring-boot-starter-test:${springBootVersion}"
+
+    testImplementation "org.springframework.kafka:spring-kafka-test:${springKafkaVersion}"
+    testImplementation "org.testcontainers:testcontainers:${kafkaTestContainers}"
+    testImplementation "org.testcontainers:kafka:${kafkaTestContainers}"
+}
+
+bootJar {
+    manifest {
+        attributes(
+                'Created-By': "${System.properties['java.version']} (${System.properties['java.vendor']})",
+                'Build-Tool': "Gradle ${gradle.gradleVersion}",
+                'Built-By': System.properties['user.name'],
+                'Implementation-Title': rootProject.name,
+                'Implementation-Vendor': 'Vendor',
+                'Implementation-Version': "${applicationVersion}"
+        )
+    }
+}
+
+test {
+    useJUnitPlatform()
+    jvmArgs(['--enable-preview'])
+}
+
+task integrationTest(type: Test) {
+    description = 'Runs integration tests.'
+    group = 'verification'
+
+    useJUnitPlatform()
+    jvmArgs(['--enable-preview'])
+
+    testClassesDirs = sourceSets.integrationTest.output.classesDirs
+    classpath = sourceSets.integrationTest.runtimeClasspath
+
+    outputs.upToDateWhen { false }
+}
+
+sourceSets {
+    main {
+        java {
+            srcDirs "$buildDir/openapi-generated-src", "$buildDir/wsdl-generated-src"
+        }
+    }
+    integrationTest {
+        java {
+            compileClasspath += main.output + test.output
+            runtimeClasspath += main.output + test.output
+            srcDir file('src/integration-test/java')
+        }
+        resources.srcDir file("src/integration-test/resources")
+    }
+}
+
+node {
+    version = '12.16.3'
+    distBaseUrl = 'https://nodejs.org/dist'
+    // If true, it will download node using above parameters.
+    // If false, it will try to use globally installed node.
+    download = true
+    workDir = file("${buildDir}/nodejs")
+}
+
+task installAsyncApiGenerator(type: NpmTask) {
+    args = ['install', '--prefix', "${buildDir}/generator", '@asyncapi/generator@1.9.14']
+}
+
+String tmpGenDir = "${buildDir}/tmp-asyncapi-generated-src"
+String genDir = "${rootDir}/src/main/java"
+
+task generateByAsyncApiSpec(type: NodeTask, dependsOn: installAsyncApiGenerator) {
+    script = file("${buildDir}/generator/node_modules/@asyncapi/generator/cli.js")
+    args = [
+            "${rootDir}/src/main/resources/api/people_asyncapi.yml",
+            "@asyncapi/java-spring-template@0.28.0",
+            "--output",
+            "${tmpGenDir}",
+            "--force-write"
+    ]
+}
+
+task generateOnlyModelByAsyncApiSpec(dependsOn: generateByAsyncApiSpec) {
+    doLast {
+        copyArtifacts(tmpGenDir, "**/model/*.java", "", genDir, "model")
+    }
+}
+
+task generateAllArtifactsByAsyncApiSpec(dependsOn: generateByAsyncApiSpec) {
+    doLast {
+        copyArtifacts(tmpGenDir, "**/model/*.java", "", genDir, "model")
+        copyArtifacts(tmpGenDir, "**/service/*.java", "**/CommandLinePublisher.java", genDir, "service")
+        copyArtifacts(tmpGenDir, "**/infrastructure/*.java", "", genDir, "configuration")
+        delete tmpGenDir
+    }
+}
+
+def copyArtifacts(sourceDir, include, exclude, targetDir, type) {
+    copy {
+        from fileTree(sourceDir).include(include).exclude(exclude).files
+        into "${targetDir}/ngfs/servicewithkafka/${type}"
+        filter { line -> line.replaceAll('com.asyncapi', 'ngfs.servicewithkafka') }
+        filter { line -> line.replaceAll('.infrastructure', '.configuration') }
+    }
+}
+
